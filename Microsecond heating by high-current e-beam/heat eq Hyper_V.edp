@@ -1,0 +1,190 @@
+// heat equation u_t + tau*u_tt= mu*u_xx + mu*tau*(u_t)_xx + f,
+// f is a heat source function;
+
+
+real ymax=4.0;
+real widthscale=50.0;
+real WvsH=0.025*widthscale;//box width/height ratio;
+//box borders [WvsH x 1]; 
+real tp=5.0*(10^-6.0),
+     dt=2.0*(10^-6.0), //attention: avoid time-step instability;
+     tr=1.0*(10^-10.0),
+     timeIncrement=1.0,
+	 t = 0.0, // start time;
+     thetaTE=1.0, //attention: choose a right time-difference method for time quantization;
+	   	s1 = 1.25/2.35482,//space dispersion of e-beam;
+	    s2 = 2.5/2.35482,//time  dispersion of e-beam;    
+       En = 0.350,
+       AAtomic= 63.546,
+       ZAtomic= 29.0,
+       totalarea=8.0,
+       densityMaterial= 8.954,
+       lambda=300*3.86,
+       ce=0.3831,
+       mu = lambda/(densityMaterial*ce),
+	   Tmelt=656.6-273,
+       To=1,
+  		 EL = 110,/*!GPa*/
+		 kPoiss = 0.35,
+	//	 muL = EL/(2*(1+kPoiss)), /*Lame's coef #1*/
+       	// lambdaL = EL*kPoiss/((1+kPoiss)*(1-2*kPoiss)), /*Lame's coef #2 - shear modulii*/
+lambdaL=7.76*(10^8),
+muL=3.86*(10^8),
+alphatem=1.78*(10^-3.0),
+gammaL=5.518*(10^3.0);
+/* tested the energy dep funvtion Q ->>  +Ok     */
+    func real Rend(real Energy)
+     { 
+      return (0.2387*(AAtomic/(ZAtomic*densityMaterial))*pow(Energy,1.265 - 0.0954*log(Energy)) );
+     }
+
+    func real Rp(real Energy)
+     { 
+      return (0.203*(AAtomic/(ZAtomic*densityMaterial))*pow(Energy,1.265 - 0.0954*log(Energy)) );
+     }
+
+    func real P( real ksi) 
+    { 
+     return (1.437/( ( pow(cosh(0.95*(2.295*ksi - 1)),1.8) )*(0.5 + pow(2.7 - 2.295*ksi,-1.0) )));
+    }
+
+    func real Q(real x, real Energy)
+    { 
+    return ((Energy/Rp(Energy))*P(x/Rp(Energy))*0.25*(1 - tanh(1000000*(x - Rend(Energy))))*(1 + tanh(1000000*x)));
+    }
+/**/
+
+
+ border C11(t=0,1){ x=WvsH*t; y=0; label=1;}//bottom; 
+ border C12(t=0,1){ x=WvsH; y=ymax*t; label=2;}//left;
+ border C13(t=0,1){ x=WvsH*(1-t); y=ymax; label=3;}//top;
+//border C114(t=0,0.3){ x=0; y=1-t; label=41;}//incident surface;
+//border C124(t=0.3,0.7){ x=0; y=1-t; label=42;} //beam impact on surface;
+//border C134(t=0.7,1){ x=0; y=1-t; label=43;} //incident surface;
+ border C14(t=0,1){ x=0; y=1*ymax-ymax*t; label=4;}
+
+// create & visualize a mesh of the domain
+ mesh Th=buildmesh( C11(100)+C12(500)+C13(100)+C14(3000));
+//Th=splitmesh(Th, 1 + abs(1.08*/*P(x*(1.176470/WvsH))*/(sin(y*pi/(ymax))^2)) );
+ plot(Th,wait=1,WindowIndex=1);
+
+/*
+*/
+    fespace Vh(Th,P2);
+     Vh u,v,u0,u1,f0,f1,f2,g,alpha;
+     u0 = 0; // u(x,y,0)=0  - initial condition;
+     alpha=0;//bind between u_m+1 /u/ and u_m /u0/;
+     u1=0;
+fespace VhL(Th,[P2,P2]);
+VhL [uuL1,vvL1],  [uuL,vvL], [uuL0,vvL0],[wL,sL];
+//uuL=0;vvL=0;wL=0;sL=0;
+cout << "lambda,mu Lame ="<<lambdaL<< " " << muL  << endl;
+real sqrt2=sqrt(2.); // see lame.edp example 3.8
+
+   macro Grad(u)[dx(u),dy(u)]//
+   macro div(u,v) ( dx(u)+dy(v) ) // EOM
+   macro epsilon(u1,u2) [dx(u1),dy(u2),(dy(u1)+dx(u2))/sqrt2] // EOM
+   
+   func real currentdist(real timer)
+     {
+     real pp=10*y, tim= (10^6.0)*(timer);
+     if (pp>0.0 && pp<40.0){
+     return (2000*((2*pi*(s2)^2)^(-0.5))* exp(-((tim - 2.5)^2)/(2*(s2^2)))
+*((2*pi*(s1^2))^(-0.5))* exp(-((y - 2)^2)/(2*(s1^2))));}
+     else {return (0.0);}
+      }
+
+   func real heatSourceM(real ex, real Energy,real t101)
+     {
+     return (3.41*1.5*Q(ex,Energy)*(10^6)*currentdist(t101)/(totalarea));
+      }
+
+   func real kmu(real Temper)
+    { 
+    return (lambda/(densityMaterial*ce));
+
+ if (Temper>=Tmelt){
+     return (lambda/(densityMaterial*3*ce));}
+     else {return (lambda/(densityMaterial*ce));}
+
+    }
+ func real swicher(real timX)
+     {
+  if (timX>=tp){
+     return (0.0);}
+    
+      }
+
+     problem dHeatM(u,v) =
+int2d(Th)( u*v*(1+tr/dt) +dt*kmu(u0)*(thetaTE+tr*alpha)*(Grad(u)'*Grad(v)))//Linearization;
++ int2d(Th) (dt*mu*(1-thetaTE)*(Grad(u0)'*Grad(v))- u0*v*(1+2*(tr/dt)) )
+//+ int2d(Th) (mu*tr*dt*(Grad(u)'*Grad(v))*alpha)
++ int2d(Th) ((tr/dt)*u1*v)  
+- int2d(Th) (    dt* ( ((1-tr)*thetaTE+(1-thetaTE)*tr)*(1/(densityMaterial*ce))*heatSourceM(x/widthscale,En,t+dt)
++(1-thetaTE)*(1-tr)*(1/(densityMaterial*ce))*heatSourceM(x/widthscale,En,t)
++thetaTE*tr*(1/(densityMaterial*ce))*heatSourceM(x/widthscale,En,t+2*dt)     )*v ) 
+-int2d(Th) ( ((10^-3.0)*gammaL/(densityMaterial*ce))*To*( epsilon(uuL,vvL)'*epsilon(uuL,vvL) )*v)  
+//+ on(4,u=incidentSurfBoundaryCondM(0.01,En,t))+on(1,2,3,u=0);//boundary condition;
+//+int1d(Th)((1/(densityMaterial*ce))*exp(-x)*0.01*v*dt*heatSourceM(0.001,En,t))//H.p.186
+//+ on(4,u=1*incidentSurfBoundaryCondM(0.001,En,t))
+//+on(1,2,3,4,u=To);//boundary condition;
+;//+on(4,u=swicher(t));//boundary condition;
+
+problem dthermradia(u,v)
+= int2d(Th)(u*v + dt*lambda*(Grad(u)'*Grad(v)))
+//+ int1d(Th,1,3)(0.0*u*v)// zero convecton from the front surface;
+- int2d(Th)(u0*v) + on(1,2,4,u=To);
+
+     problem dElast([uuL1,vvL1],[wL,sL])=
+int2d(Th)(0.0*(-1/(dt*dt))*densityMaterial*[uuL1,vvL1]'*[wL,sL])
++int2d(Th)(0.0*(2/(dt*dt))*densityMaterial*[uuL,vvL]'*[wL,sL])
++int2d(Th)(0.0*(-1/(dt*dt))*densityMaterial*[uuL0,vvL0]'*[wL,sL])
++int2d(Th)(
+lambdaL*div(uuL1,vvL1)*div(wL,sL)
++2.*muL*( epsilon(uuL1,vvL1)'*epsilon(wL,sL) ))
+//+ int2d(Th)(gammaL*u*wL//dx(u)*dx(uuL) )
+//+dx(u)*dx(vvL)) )
+//+ int2d(Th) (-gammaL*u*wL)
++ int2d(Th) (gammaL*u/*(dx(u)*dx(uuL)+dx(u)*dy(vvL))*/*wL  )
++ on(1,2,3,uuL1=0,vvL1=0);
+
+     for (int m=0;m<=100000*tp/dt;m++) // evolution;
+   {
+//Th=splitmesh(Th,100*(x + 0.25)*((sin(pi*(y/2))^2))  );
+/*f0 = heatSource(t); t=t+dt; f1 = heatSource(t);
+f2 = heatSource(t+dt);
+g = incidentSurfBoundaryCond(t);*/
+
+   t=t+dt;
+   dHeatM;
+//dthermradia; 
+   dElast;
+//wL,sL)*div(uuL,vvL
+// u_m=u_m+1 * (1.0 - alpha * dt); << for linearization of (u_t)_xx
+   alpha=(dt^-1.0)*(1-(u0*u^-1.0));
+
+     plot(u,cmm="Height vs. Width: "+ymax+" : "+WvsH+"sm,    t="+t+" s  "
+      +",    dt="+dt+" s  " + "; current time= "+clock(), //plotlabel;
+       fill=true,wait=0, value=true, nbiso=25,boundary=false,ColorScheme = 2,
+WindowIndex=1);//,ColorScheme=3);
+     plot([uuL1,vvL1],cmm="t="+t+" s", //plotlabel;
+fill=true,wait=1, value=true, nbiso=25,boundary=false,WindowIndex=2,ColorScheme = 2,
+ArrowSize=1);
+
+Th = movemesh(Th, [x+uuL, y+vvL]);
+
+//time counter;
+   u1=u0;
+   u0 = u; 
+  [uuL0,vvL0]=[uuL,vvL];
+  [uuL,vvL]=[uuL1,vvL1];
+//if statement for diffusion after the beam impact;
+   dt=dt*timeIncrement;
+
+/*Th=buildmesh( // create & visualize a mesh of the domain
+C11(30)+C12(100)+C13(30)+C14(200));
+Th=adaptmesh(Th,u);
+Th=splitmesh(Th,2);
+*/
+
+    }

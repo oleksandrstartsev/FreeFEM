@@ -5,6 +5,9 @@
 <p> Heatpropagation v1/heat Advanced 1.edp - is a simple program on modelling of heat propagation during laser heating. This is very simplified version without any real physical constants (real thermal capacity, etc could be easily included). 
 
 </p>
+<p> Microsecond heating by high-current e-beam/... - are the test codes on modelling of heating and heat expansion (e.g. displacements) during real microsecond ablation by the high-current (intense) electron beam. 
+
+</p>
 </blockquote>
 </div>
 

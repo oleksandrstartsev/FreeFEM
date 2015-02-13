@@ -1,0 +1,152 @@
+// heat equation u_t + tau*u_tt= mu*u_xx + mu*tau*(u_t)_xx + f,
+// f is a heat source function;
+
+
+real ymax=2.0;
+real WvsH=1.0*ymax;//box width/height ratio;
+//box borders [WvsH x 1]; 
+border C11(t=0,1){ x=WvsH*t; y=0; label=1;}//bottom;
+border C12(t=0,1){ x=WvsH; y=ymax*t; label=2;}//left;
+border C13(t=0,1){ x=WvsH*(1-t); y=ymax; label=3;}//top;
+//border C114(t=0,0.3){ x=0; y=1-t; label=41;}//incident surface;
+//border C124(t=0.3,0.7){ x=0; y=1-t; label=42;} //beam impact on surface;
+//border C134(t=0.7,1){ x=0; y=1-t; label=43;} //incident surface;
+border C14(t=0,1){ x=0; y=1*ymax-ymax*t; label=4;}
+
+plot( // visualize the border of the domain
+C11(100)+C12(20)+C13(100)+C14(200),wait=1);
+
+mesh Th=buildmesh( // create & visualize a mesh of the domain
+C11(100)+C12(20)+C13(100)+C14(200));
+plot(Th,wait=1);
+/*
+*/
+fespace Vh(Th,P1);
+Vh u,v,u0,u1,f0,f1,f2,g,alpha;
+real dt = 0.0005,duration=1000*dt,//attention: avoid time-step instability;
+ mu = 1, tr=dt/5, timeIncrement=1.05,
+Intensity=10, phi=0.5,tp=duration;
+real thetaTE=1; //attention: choose a right time-difference method for time quantization;
+
+
+real En = 4,
+AAtomic= 63.546,
+ZAtomic= 29,
+densityMaterial= 8.92;
+real t = 0; // start from t=0;
+u0 = 0; // u(x,y,0)=0  - initial condition;
+alpha=0;//bind between u_m+1 /u/ and u_m /u0/;
+u1=0;
+
+/*
+func real heatSource(real t52)
+{
+return (Intensity/phi)*exp(-x/phi)*exp(-(abs((t52-tp)/tp)))*(sin(y*pi)^8.0);
+}
+func real incidentSurfBoundaryCond(real t52)
+{
+return  (Intensity/phi)*exp(-(abs((t52-tp)/tp)))*(sin(y*pi)^8.0);
+}
+*/
+
+
+/* tested the energy dep funvtion Q ->>  +Ok     */
+func real Rend(real Energy)
+{ 
+ return (0.2387*(AAtomic/(ZAtomic*densityMaterial))*pow(Energy,1.265 - 0.0954*log(Energy)) );
+}
+
+func real Rp(real Energy)
+{ 
+ return (0.203*(AAtomic/(ZAtomic*densityMaterial))*pow(Energy,1.265 - 0.0954*log(Energy)) );
+}
+func real P( real ksi) 
+{ return (1.437/( ( pow(cosh(0.95*(2.295*ksi - 1)),1.8) )*(0.5 + pow(2.7 - 2.295*ksi,-1.0) )));
+}
+
+func real Q(real x, real Energy)
+{ 
+return ((Energy/Rp(Energy))*P(x/Rp(Energy))*0.25*(1 - tanh(1000000*(x - Rend(Energy))))*(1 + tanh(1000000*x)));
+}
+/**/
+func real distr()
+{
+return (sin(0.5*y*pi)^8.0);
+}
+//(84.8*exp((-0.25)*pow(timer,2.1)-0.019*pow(pp,2.7))*timer*timer*log(1+pow(pp, 2.80)));}
+func real currentdist(real timer)
+{real pp=10*y-7, tim=100*timer;
+if (pp>0.0 && pp<8.0){
+return (84.8*exp((-0.25)*pow(tim,2.1)-0.019*pow(pp,2.7))*tim*tim*log(1+pow(pp, 2.80)));}
+else {return (0.0);}
+}
+
+func real heatSourceM(real ex, real Energy,real t101)
+{
+return (Q(ex,Energy)*currentdist(t101));
+}
+func real incidentSurfBoundaryCondM(real ex, real Energy,real t101)
+{
+return  (Q(ex,Energy)*currentdist(t101));
+}
+
+
+macro Grad(u)[dx(u),dy(u)]//
+/*
+problem dHeat(u,v) =
+int2d(Th)( u*v + dt*mu*(dx(u)*dx(v) + dy(u)*dy(v)))
++ int2d(Th) (- uu*v - dt*f*v )
++ on(1,2,3,4,u=g);
+*/
+//u - u_m+1; u0 - u_m; u1 - u_m-1;
+
+/*
+problem dHeat(u,v) =
+int2d(Th)( u*v*(1+tr/dt) +dt*mu*(thetaTE+tr*alpha)*(Grad(u)'*Grad(v)))//Linearization;
++ int2d(Th) (dt*mu*(1-thetaTE)*(Grad(u0)'*Grad(v))- u0*v*(1+2*(tr/dt)) )
+//+ int2d(Th) (mu*tr*dt*(Grad(u)'*Grad(v))*alpha)
+//+ int2d(Th) (mu*tr*dt*((alpha*Grad(Grad(u))))
++ int2d(Th) ((tr/dt)*u1*v)  
+- int2d(Th) (  ((dt-tr)*thetaTE+(1-thetaTE)*tr)*f1*v
++(1-thetaTE)*(dt-tr)*f0*v
++thetaTE*tr*f2*v) 
++ on(4,u=100*g)+on(1,2,3,u=0);//boundary condition;
+*/
+
+problem dHeatM(u,v) =
+int2d(Th)( u*v*(1+tr/dt) +dt*mu*(thetaTE+tr*alpha)*(Grad(u)'*Grad(v)))//Linearization;
++ int2d(Th) (dt*mu*(1-thetaTE)*(Grad(u0)'*Grad(v))- u0*v*(1+2*(tr/dt)) )
+//+ int2d(Th) (mu*tr*dt*(Grad(u)'*Grad(v))*alpha)
+//+ int2d(Th) (mu*tr*dt*((alpha*Grad(Grad(u))))
++ int2d(Th) ((tr/dt)*u1*v)  
+- int2d(Th) (  ((dt-tr)*thetaTE+(1-thetaTE)*tr)*heatSourceM(x,En,t+dt)*v
++(1-thetaTE)*(dt-tr)*heatSourceM(x,En,t)*v
++thetaTE*tr*heatSourceM(x,En,t+2*dt)*v) 
+//+ on(4,u=incidentSurfBoundaryCondM(0.01,En,t))+on(1,2,3,u=0);//boundary condition;
+//-int1d(Th)(v*incidentSurfBoundaryCondM(0.01,En,t))
+//+ on(4,u=1*incidentSurfBoundaryCondM(0.001,En,t))
++on(1,2,3,4,u=0);//boundary condition;
+//+on(1,2,3,41,43,u=0);
+
+for (int m=0;m<=duration/dt;m++) // evolution;
+{
+
+/*f0 = heatSource(t); t=t+dt; f1 = heatSource(t);
+f2 = heatSource(t+dt);
+g = incidentSurfBoundaryCond(t);*/
+
+t=t+dt;
+dHeatM; 
+
+// u_m=u_m+1 * (1.0 - alpha * dt); << for linearization of (u_t)_xx
+alpha=(dt^-1.0)*(1-(u0*u^-1.0));
+
+plot(u,cmm="t="+100*t+" s  "+Q(0.001,En), //plotlabel;
+fill=true,wait=0, value=true, nbiso=35,boundary=false);
+
+//time counter;
+u1=u0;
+u0 = u; 
+dt=dt*timeIncrement;
+
+}
