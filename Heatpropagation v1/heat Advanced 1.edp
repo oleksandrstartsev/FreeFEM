@@ -1,0 +1,73 @@
+// heat equation u_t = mu*u_xx+f, f is a heat source function;
+
+real WvsH=2.0;//box width/height ratio;
+
+//box borders [WvsH x 1]; 
+border C11(t=0,1){ x=WvsH*t; y=0; label=1;}//bottom;
+border C12(t=0,1){ x=WvsH; y=t; label=2;}//left;
+border C13(t=0,1){ x=WvsH*(1-t); y=1; label=3;}//top;
+//border C114(t=0,0.3){ x=0; y=1-t; label=41;}//incident surface;
+//border C124(t=0.3,0.7){ x=0; y=1-t; label=42;} //beam impact on surface;
+//border C134(t=0.7,1){ x=0; y=1-t; label=43;} //incident surface;
+border C14(t=0,1){ x=0; y=1-t; label=4;}
+
+plot( // visualize the border of the domain
+C11(50)+C12(10)+C13(50)+C14(100),wait=1);
+
+mesh Th=buildmesh( // create & visualize a mesh of the domain
+C11(50)+C12(10)+C13(50)+C14(100));
+plot(Th,wait=1);
+/*
+*/
+fespace Vh(Th,P1);
+Vh u,v,u0,u1,f0,f1,g;
+real dt = 0.005,//attention: avoid time-step instability;
+ mu = 1, tr=dt/10,
+Intensity=10, phi=0.5,tp=1;
+real thetaTE=1; //attention: choose a right time-difference method for time quantization;
+
+func real heatSource(real t52)
+{
+return (Intensity/phi)*exp(-x/phi)*exp(-(abs((t52-tp)/tp)))*(sin(y*pi)^8.0);
+}
+func real incidentSurfBoundaryCond(real t52)
+{
+return  (Intensity/phi)*exp(-(abs((t52-tp)/tp)))*(sin(y*pi)^8.0);
+}
+
+macro Grad(u)[dx(u),dy(u)]//
+/*
+problem dHeat(u,v) =
+int2d(Th)( u*v + dt*mu*(dx(u)*dx(v) + dy(u)*dy(v)))
++ int2d(Th) (- uu*v - dt*f*v )
++ on(1,2,3,4,u=g);
+*/
+//u - u_m+1; u0 - u_m; u1 - u_m-1;
+problem dHeat(u,v) =
+int2d(Th)( u*v*(1+tr/dt) +dt*mu*thetaTE*(Grad(u)'*Grad(v)))//Linearization;
++ int2d(Th) (dt*mu*(1-thetaTE)*(Grad(u0)'*Grad(v))- u0*v*(1+2*(tr/dt)) )
++ int2d(Th) ((tr/dt)*u1*v)  
++ int2d(Th) (- dt*thetaTE*f1*v- dt*(1-thetaTE)*f0*v) 
++ on(4,u=100*g)+on(1,2,3,u=0);;//boundary condition;
+//+on(1,2,3,41,43,u=0);
+real t = 0; // start from t=0;
+
+
+u0 = 0; // u(x,y,0)=0  - initial condition;
+u1=0;
+for (int m=0;m<=0.1/dt;m++) // evolution;
+{
+
+f0 = heatSource(t); t=t+dt; f1 = heatSource(t);
+g = incidentSurfBoundaryCond(t);
+dHeat; 
+
+plot(u,cmm="t="+t+" s", //plotlabel;
+fill=true,wait=1, value=true, nbiso=35,boundary=false);
+
+//time counter;
+u1=u0;
+u0 = u; 
+
+
+}
